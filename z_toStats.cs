@@ -1,12 +1,12 @@
 //
-// TribalOutpost Stats v2.0.5 — Thin Reporting Layer
+// TribalOutpost Stats v2.1.0 — Thin Reporting Layer
 //
 // Reads DarkTiger's dtStats stat objects and reports to the TribalOutpost API.
 // Requires z_dtStats.cs to be loaded first (files load alphabetically in scripts/autoexec/).
 //
 // Place this file in Base/Scripts/autoexec folder and restart the server.
 //
-// Stats Script Sfphinx
+// Stats Script by Sfphinx
 //
 // License: MIT License
 //
@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.0.5";
+$TribalOutpost::Version = "2.1.0";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -722,7 +722,6 @@ function tribaloutpost_snapshotDroppedPlayer(%client)
 	$T2Stats::Dropped[%idx, "guid"] = %client.guid;
 	$T2Stats::Dropped[%idx, "nameBase"] = %client.nameBase;
 	$T2Stats::Dropped[%idx, "name"] = StripMLControlChars(getTaggedString(%client.name));
-	$T2Stats::Dropped[%idx, "address"] = %client.getAddress();
 	$T2Stats::Dropped[%idx, "clid"] = %client;
 	$T2Stats::Dropped[%idx, "jointime"] = %client.jointime;
 	$T2Stats::Dropped[%idx, "wasCaptain"] = (%client.wasCaptain $= "" ? 0 : %client.wasCaptain);
@@ -880,7 +879,7 @@ function tribaloutpost_writePlayersFile(%game)
 		if (%cl.team > 0)
 			%teamName = getTaggedString(%game.getTeamName(%cl.team));
 
-		// CSV line: guid,name,fullname,ip,clid,team,captain,time,score,kills,deaths,suicides,teamkills,
+		// CSV line: guid,name,fullname,ip(reserved),clid,team,captain,time,score,kills,deaths,suicides,teamkills,
 		//           flagtime,flagdist,flagpercentdist,cappedflagtime,cappedflagdist,cappedflagpercentdist,
 		//           caps,grabs,egrabs,gendestroys,sensordestroys,turretdestroys,invdestroys,vpaddestroys,
 		//           solardestroys,sentrydestroys,depsensordestroys,depturretdestroys,depinvdestroys,
@@ -888,7 +887,7 @@ function tribaloutpost_writePlayersFile(%game)
 		%line = %cl.guid;
 		%line = %line @ "," @ %cl.nameBase;
 		%line = %line @ "," @ StripMLControlChars(getTaggedString(%cl.name));
-		%line = %line @ "," @ %cl.getAddress();
+		%line = %line @ ",";
 		%line = %line @ "," @ %cl;
 		%line = %line @ "," @ %teamName;
 		%line = %line @ "," @ %captain;
@@ -981,7 +980,7 @@ function tribaloutpost_writePlayersFile(%game)
 			%line = %dt.guid;
 			%line = %line @ "," @ $T2Stats::Dropped[%snap, "nameBase"];
 			%line = %line @ "," @ $T2Stats::Dropped[%snap, "name"];
-			%line = %line @ "," @ $T2Stats::Dropped[%snap, "address"];
+			%line = %line @ ",";
 			%line = %line @ "," @ $T2Stats::Dropped[%snap, "clid"];
 			%line = %line @ "," @ %teamName;
 			%line = %line @ "," @ $T2Stats::Dropped[%snap, "wasCaptain"];
