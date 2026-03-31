@@ -1,5 +1,5 @@
 //
-// TribalOutpost Stats v2.2.0 — Thin Reporting Layer
+// TribalOutpost Stats v2.2.1 — Thin Reporting Layer
 //
 // Reads DarkTiger's dtStats stat objects and reports to the TribalOutpost API.
 // Requires z_dtStats.cs to be loaded first (files load alphabetically in scripts/autoexec/).
@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.2.0";
+$TribalOutpost::Version = "2.2.1";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -860,6 +860,14 @@ function tribaloutpost_writePlayersFile(%game)
 				(%dt.stat["mineMA"] + 0);
 		}
 
+		// Determine captain (player who teamed the most others)
+		%captain = (%cl.wasCaptain $= "" ? 0 : %cl.wasCaptain);
+
+		// Team name (must be set before win/loss check)
+		%teamName = "";
+		if (%cl.team > 0)
+			%teamName = getTaggedString(%game.getTeamName(%cl.team));
+
 		// Compute win/loss from team scores
 		%wincount = 0;
 		%losscount = 0;
@@ -870,14 +878,6 @@ function tribaloutpost_writePlayersFile(%game)
 			else
 				%losscount = 1;
 		}
-
-		// Determine captain (player who teamed the most others)
-		%captain = (%cl.wasCaptain $= "" ? 0 : %cl.wasCaptain);
-
-		// Team name
-		%teamName = "";
-		if (%cl.team > 0)
-			%teamName = getTaggedString(%game.getTeamName(%cl.team));
 
 		// CSV line: guid,name,fullname,ip(reserved),clid,team,captain,time,score,kills,deaths,suicides,teamkills,
 		//           flagtime,flagdist,flagpercentdist,cappedflagtime,cappedflagdist,cappedflagpercentdist,
