@@ -1,5 +1,5 @@
 //
-// TribalOutpost Stats v2.1.0 — Thin Reporting Layer
+// TribalOutpost Stats v2.2.0 — Thin Reporting Layer
 //
 // Reads DarkTiger's dtStats stat objects and reports to the TribalOutpost API.
 // Requires z_dtStats.cs to be loaded first (files load alphabetically in scripts/autoexec/).
@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.1.0";
+$TribalOutpost::Version = "2.2.0";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -1121,6 +1121,11 @@ function tribaloutpost_writeExtFile(%game)
 // ============================================================
 // HTTP Submission Chain
 // ============================================================
+//
+// Each gameOver creates a submission with a unique ID ($T2Stats::SubmitSeq).
+// All state for that submission is keyed by the ID so concurrent
+// submissions from rapid map changes don't clobber each other.
+//
 
 // Step 1: Submit match metadata → returns mid
 function tribaloutpost_submitMatch()
@@ -1131,13 +1136,26 @@ function tribaloutpost_submitMatch()
 		return;
 	}
 
-	tribaloutpost_log("Submitting match...");
+	// Allocate a unique submission ID
+	if ($T2Stats::SubmitSeq $= "") $T2Stats::SubmitSeq = 0;
+	$T2Stats::SubmitSeq++;
+	%sid = $T2Stats::SubmitSeq;
+
+	// Snapshot file paths for this submission
+	$T2Stats::Sub[%sid, "matchFile"] = $T2Stats::MatchFile;
+	$T2Stats::Sub[%sid, "playersFile"] = $T2Stats::PlayersFile;
+	$T2Stats::Sub[%sid, "extFile"] = $T2Stats::ExtFile;
+	$T2Stats::Sub[%sid, "playsFile"] = $T2Stats::PlaysFile;
+	$T2Stats::Sub[%sid, "playsCount"] = $T2Stats::PlaysCount;
+	$T2Stats::Sub[%sid, "mid"] = "";
+
+	tribaloutpost_log("[" @ %sid @ "] Submitting match...");
 
 	// Read match file
 	%fo = new FileObject();
-	if (!%fo.openForRead($T2Stats::MatchFile))
+	if (!%fo.openForRead($T2Stats::Sub[%sid, "matchFile"]))
 	{
-		tribaloutpost_log("Could not read match file.");
+		tribaloutpost_log("[" @ %sid @ "] Could not read match file.");
 		%fo.delete();
 		return;
 	}
@@ -1160,6 +1178,7 @@ function tribaloutpost_submitMatch()
 	}
 
 	new HTTPObject(T2StatsImport);
+	T2StatsImport.submitId = %sid;
 
 	T2StatsImport.setHeader("Content-Type", "text/plain");
 	T2StatsImport.setHeader("Accept", "text/plain");
@@ -1170,19 +1189,22 @@ function tribaloutpost_submitMatch()
 
 function T2StatsImport::onLine(%this, %line)
 {
-	tribaloutpost_log("Import response: " @ %line);
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] Import response: " @ %line);
 
 	if (strstr(%line, "mid=") == 0)
 	{
-		$T2Stats::LastMID = getSubStr(%line, 4, strlen(%line) - 4);
-		tribaloutpost_log("Match recorded (mid=" @ $T2Stats::LastMID @ ")");
+		%mid = getSubStr(%line, 4, strlen(%line) - 4);
+		$T2Stats::Sub[%sid, "mid"] = %mid;
+		$T2Stats::LastMID = %mid;
+		tribaloutpost_log("[" @ %sid @ "] Match recorded (mid=" @ %mid @ ")");
 
 		// Chain: send players → ext stats → plays
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayerBatch", 0);
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayerBatch", %sid, 0);
 	}
 
 	if (strstr(%line, "error=") == 0)
-		tribaloutpost_log("Error: " @ getSubStr(%line, 6, strlen(%line) - 6));
+		tribaloutpost_log("[" @ %sid @ "] Error: " @ getSubStr(%line, 6, strlen(%line) - 6));
 }
 
 function T2StatsImport::onDisconnect(%this)
@@ -1192,29 +1214,30 @@ function T2StatsImport::onDisconnect(%this)
 
 function T2StatsImport::onConnectFailed(%this)
 {
-	tribaloutpost_log("Connection failed for match import.");
+	tribaloutpost_log("[" @ %this.submitId @ "] Connection failed for match import.");
 	%this.delete();
 }
 
 function T2StatsImport::onDNSFailed(%this)
 {
-	tribaloutpost_log("DNS failed for match import.");
+	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for match import.");
 	%this.delete();
 }
 
 // Step 2: Send player stats
-function tribaloutpost_sendPlayerBatch(%lineOffset)
+function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 {
-	if ($T2Stats::LastMID $= "")
+	%mid = $T2Stats::Sub[%sid, "mid"];
+	if (%mid $= "")
 		return;
 
 	%fo = new FileObject();
-	if (!%fo.openForRead($T2Stats::PlayersFile))
+	if (!%fo.openForRead($T2Stats::Sub[%sid, "playersFile"]))
 	{
-		tribaloutpost_log("Could not read players file.");
+		tribaloutpost_log("[" @ %sid @ "] Could not read players file.");
 		%fo.delete();
 		// Skip to ext stats
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", 0);
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, 0);
 		return;
 	}
 
@@ -1248,14 +1271,14 @@ function tribaloutpost_sendPlayerBatch(%lineOffset)
 	if (%linesRead == 0)
 	{
 		// No more players, move to ext stats
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", 0);
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, 0);
 		return;
 	}
 
-	tribaloutpost_log("Sending player batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
+	tribaloutpost_log("[" @ %sid @ "] Sending player batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::PlayerBatchOffset = %lineOffset + %linesRead;
-	$T2Stats::PlayerBatchHasMore = %hasMore;
+	$T2Stats::Sub[%sid, "playerOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "playerHasMore"] = %hasMore;
 
 	if (isObject(T2StatsPlayers))
 	{
@@ -1264,59 +1287,63 @@ function tribaloutpost_sendPlayerBatch(%lineOffset)
 	}
 
 	new HTTPObject(T2StatsPlayers);
+	T2StatsPlayers.submitId = %sid;
 
 	T2StatsPlayers.setHeader("Content-Type", "text/plain");
 	T2StatsPlayers.setHeader("Accept", "text/plain");
 	T2StatsPlayers.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
 	T2StatsPlayers.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsPlayers.post($TribalOutpost::StatsURL, $TribalOutpost::PlayersPath @ $T2Stats::LastMID @ "/players", "", %body);
+	T2StatsPlayers.post($TribalOutpost::StatsURL, $TribalOutpost::PlayersPath @ %mid @ "/players", "", %body);
 }
 
 function T2StatsPlayers::onLine(%this, %line)
 {
-	tribaloutpost_log("Players response: " @ %line);
+	tribaloutpost_log("[" @ %this.submitId @ "] Players response: " @ %line);
 }
 
 function T2StatsPlayers::onDisconnect(%this)
 {
-	if ($T2Stats::PlayerBatchHasMore)
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayerBatch", $T2Stats::PlayerBatchOffset);
+	%sid = %this.submitId;
+	if ($T2Stats::Sub[%sid, "playerHasMore"])
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayerBatch", %sid, $T2Stats::Sub[%sid, "playerOffset"]);
 	else
 	{
-		tribaloutpost_log("All player data sent.");
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", 0);
+		tribaloutpost_log("[" @ %sid @ "] All player data sent.");
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, 0);
 	}
 	%this.delete();
 }
 
 function T2StatsPlayers::onConnectFailed(%this)
 {
-	tribaloutpost_log("Connection failed for player batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] Connection failed for player batch.");
 	// Try ext stats anyway
-	schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", 0);
+	schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, 0);
 	%this.delete();
 }
 
 function T2StatsPlayers::onDNSFailed(%this)
 {
-	tribaloutpost_log("DNS failed for player batch.");
+	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for player batch.");
 	%this.delete();
 }
 
 // Step 3: Send extension stats
-function tribaloutpost_sendExtBatch(%lineOffset)
+function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 {
-	if ($T2Stats::LastMID $= "")
+	%mid = $T2Stats::Sub[%sid, "mid"];
+	if (%mid $= "")
 		return;
 
 	%fo = new FileObject();
-	if (!%fo.openForRead($T2Stats::ExtFile))
+	if (!%fo.openForRead($T2Stats::Sub[%sid, "extFile"]))
 	{
-		tribaloutpost_log("Could not read ext file.");
+		tribaloutpost_log("[" @ %sid @ "] Could not read ext file.");
 		%fo.delete();
 		// Skip to plays
-		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::PlaysCount > 0)
-			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", 0);
+		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
+			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 		return;
 	}
 
@@ -1350,17 +1377,17 @@ function tribaloutpost_sendExtBatch(%lineOffset)
 	if (%linesRead == 0)
 	{
 		// No more ext stats, move to plays
-		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::PlaysCount > 0)
-			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", 0);
+		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
+			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 		else
-			tribaloutpost_log("Submission complete.");
+			tribaloutpost_log("[" @ %sid @ "] Submission complete.");
 		return;
 	}
 
-	tribaloutpost_log("Sending ext batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
+	tribaloutpost_log("[" @ %sid @ "] Sending ext batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::ExtBatchOffset = %lineOffset + %linesRead;
-	$T2Stats::ExtBatchHasMore = %hasMore;
+	$T2Stats::Sub[%sid, "extOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "extHasMore"] = %hasMore;
 
 	if (isObject(T2StatsExt))
 	{
@@ -1369,62 +1396,66 @@ function tribaloutpost_sendExtBatch(%lineOffset)
 	}
 
 	new HTTPObject(T2StatsExt);
+	T2StatsExt.submitId = %sid;
 
 	T2StatsExt.setHeader("Content-Type", "text/plain");
 	T2StatsExt.setHeader("Accept", "text/plain");
 	T2StatsExt.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
 	T2StatsExt.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsExt.post($TribalOutpost::StatsURL, $TribalOutpost::ExtPath @ $T2Stats::LastMID @ "/stats", "", %body);
+	T2StatsExt.post($TribalOutpost::StatsURL, $TribalOutpost::ExtPath @ %mid @ "/stats", "", %body);
 }
 
 function T2StatsExt::onLine(%this, %line)
 {
-	tribaloutpost_log("Ext response: " @ %line);
+	tribaloutpost_log("[" @ %this.submitId @ "] Ext response: " @ %line);
 }
 
 function T2StatsExt::onDisconnect(%this)
 {
-	if ($T2Stats::ExtBatchHasMore)
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", $T2Stats::ExtBatchOffset);
+	%sid = %this.submitId;
+	if ($T2Stats::Sub[%sid, "extHasMore"])
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, $T2Stats::Sub[%sid, "extOffset"]);
 	else
 	{
-		tribaloutpost_log("All ext stats sent.");
-		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::PlaysCount > 0)
-			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", 0);
+		tribaloutpost_log("[" @ %sid @ "] All ext stats sent.");
+		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
+			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 		else
-			tribaloutpost_log("Submission complete.");
+			tribaloutpost_log("[" @ %sid @ "] Submission complete.");
 	}
 	%this.delete();
 }
 
 function T2StatsExt::onConnectFailed(%this)
 {
-	tribaloutpost_log("Connection failed for ext batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] Connection failed for ext batch.");
 	// Try plays anyway
-	if ($TribalOutpost::EnablePlayByPlay && $T2Stats::PlaysCount > 0)
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", 0);
+	if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 	%this.delete();
 }
 
 function T2StatsExt::onDNSFailed(%this)
 {
-	tribaloutpost_log("DNS failed for ext batch.");
+	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for ext batch.");
 	%this.delete();
 }
 
 // Step 4: Send play-by-play batches
-function tribaloutpost_sendPlayBatch(%lineOffset)
+function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 {
-	if ($T2Stats::LastMID $= "")
+	%mid = $T2Stats::Sub[%sid, "mid"];
+	if (%mid $= "")
 	{
-		tribaloutpost_log("No MID, skipping play-by-play.");
+		tribaloutpost_log("[" @ %sid @ "] No MID, skipping play-by-play.");
 		return;
 	}
 
 	%fo = new FileObject();
-	if (!%fo.openForRead($T2Stats::PlaysFile))
+	if (!%fo.openForRead($T2Stats::Sub[%sid, "playsFile"]))
 	{
-		tribaloutpost_log("Could not read plays file.");
+		tribaloutpost_log("[" @ %sid @ "] Could not read plays file.");
 		%fo.delete();
 		return;
 	}
@@ -1458,14 +1489,14 @@ function tribaloutpost_sendPlayBatch(%lineOffset)
 
 	if (%linesRead == 0)
 	{
-		tribaloutpost_log("All play-by-play sent. Submission complete.");
+		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent. Submission complete.");
 		return;
 	}
 
-	tribaloutpost_log("Sending play batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
+	tribaloutpost_log("[" @ %sid @ "] Sending play batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::BatchOffset = %lineOffset + %linesRead;
-	$T2Stats::BatchHasMore = %hasMore;
+	$T2Stats::Sub[%sid, "playOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "playHasMore"] = %hasMore;
 
 	if (isObject(T2StatsPlays))
 	{
@@ -1474,32 +1505,34 @@ function tribaloutpost_sendPlayBatch(%lineOffset)
 	}
 
 	new HTTPObject(T2StatsPlays);
+	T2StatsPlays.submitId = %sid;
 
 	T2StatsPlays.setHeader("Content-Type", "text/plain");
 	T2StatsPlays.setHeader("Accept", "text/plain");
 	T2StatsPlays.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
 	T2StatsPlays.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsPlays.post($TribalOutpost::StatsURL, $TribalOutpost::PlaysPath @ $T2Stats::LastMID @ "/plays", "", %body);
+	T2StatsPlays.post($TribalOutpost::StatsURL, $TribalOutpost::PlaysPath @ %mid @ "/plays", "", %body);
 }
 
 function T2StatsPlays::onLine(%this, %line)
 {
-	tribaloutpost_log("Plays response: " @ %line);
+	tribaloutpost_log("[" @ %this.submitId @ "] Plays response: " @ %line);
 }
 
 function T2StatsPlays::onDisconnect(%this)
 {
-	if ($T2Stats::BatchHasMore)
-		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", $T2Stats::BatchOffset);
+	%sid = %this.submitId;
+	if ($T2Stats::Sub[%sid, "playHasMore"])
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, $T2Stats::Sub[%sid, "playOffset"]);
 	else
-		tribaloutpost_log("All play-by-play sent. Submission complete.");
+		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent. Submission complete.");
 
 	%this.delete();
 }
 
 function T2StatsPlays::onConnectFailed(%this)
 {
-	tribaloutpost_log("Connection failed for play-by-play batch.");
+	tribaloutpost_log("[" @ %this.submitId @ "] Connection failed for play-by-play batch.");
 	%this.delete();
 }
 
