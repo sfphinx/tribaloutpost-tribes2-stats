@@ -1,5 +1,5 @@
 //
-// TribalOutpost Stats v2.2.1 — Thin Reporting Layer
+// TribalOutpost Stats v2.2.2 — Thin Reporting Layer
 //
 // Reads DarkTiger's dtStats stat objects and reports to the TribalOutpost API.
 // Requires z_dtStats.cs to be loaded first (files load alphabetically in scripts/autoexec/).
@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.2.1";
+$TribalOutpost::Version = "2.2.2";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -1252,9 +1252,11 @@ function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 	// Read batch (10 players per batch)
 	%body = "";
 	%linesRead = 0;
+	%fileLines = 0;
 	while (%linesRead < 10 && !%fo.isEOF())
 	{
 		%line = %fo.readLine();
+		%fileLines++;
 		if (%line !$= "")
 		{
 			if (%linesRead > 0)
@@ -1277,7 +1279,7 @@ function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 
 	tribaloutpost_log("[" @ %sid @ "] Sending player batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::Sub[%sid, "playerOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "playerOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playerHasMore"] = %hasMore;
 
 	if (isObject(T2StatsPlayers))
@@ -1358,9 +1360,11 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 	// Read batch
 	%body = "";
 	%linesRead = 0;
+	%fileLines = 0;
 	while (%linesRead < $TribalOutpost::ExtBatchSize && !%fo.isEOF())
 	{
 		%line = %fo.readLine();
+		%fileLines++;
 		if (%line !$= "")
 		{
 			if (%linesRead > 0)
@@ -1386,7 +1390,7 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 
 	tribaloutpost_log("[" @ %sid @ "] Sending ext batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::Sub[%sid, "extOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "extOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "extHasMore"] = %hasMore;
 
 	if (isObject(T2StatsExt))
@@ -1471,9 +1475,11 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 	// Read batch
 	%body = "";
 	%linesRead = 0;
+	%fileLines = 0;
 	while (%linesRead < $TribalOutpost::PlayBatchSize && !%fo.isEOF())
 	{
 		%line = %fo.readLine();
+		%fileLines++;
 		if (%line !$= "")
 		{
 			if (%linesRead > 0)
@@ -1495,7 +1501,7 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 
 	tribaloutpost_log("[" @ %sid @ "] Sending play batch, offset=" @ %lineOffset @ " lines=" @ %linesRead);
 
-	$T2Stats::Sub[%sid, "playOffset"] = %lineOffset + %linesRead;
+	$T2Stats::Sub[%sid, "playOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playHasMore"] = %hasMore;
 
 	if (isObject(T2StatsPlays))
