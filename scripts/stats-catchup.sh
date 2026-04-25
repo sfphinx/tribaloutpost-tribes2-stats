@@ -16,10 +16,12 @@
 #   --token <token>    Auth token (overrides token.txt)
 #   --dry-run          Show what would be done without making changes
 #   --max <n>          Maximum matches to process per run (default: 20)
+#   --min-age <min>    Skip matches whose .match file is newer than N minutes
+#                      (default: 15) — avoids racing the in-game upload.
 #   --verbose          Show detailed output
 #
-# Cron example (every 5 minutes):
-#   */15 * * * * /path/to/stats-catchup.sh --api https://to.com /path/to/TribalOutpostStats >> /var/log/stats-catchup.log 2>&1
+# Cron example (every 5 minutes; threshold stays at 15 min for safety):
+#   */5 * * * * /path/to/stats-catchup.sh --api https://to.com /path/to/TribalOutpostStats >> /var/log/stats-catchup.log 2>&1
 #
 set -euo pipefail
 
@@ -27,6 +29,7 @@ API_URL="https://tribaloutpost.com"
 CLI_TOKEN=""
 DRY_RUN=0
 MAX_MATCHES=20
+MIN_AGE_MINUTES=15
 VERBOSE=0
 STATS_DIR=""
 
@@ -36,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --token)   CLI_TOKEN="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --max)     MAX_MATCHES="$2"; shift 2 ;;
+    --min-age) MIN_AGE_MINUTES="$2"; shift 2 ;;
     --verbose) VERBOSE=1; shift ;;
     -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *)         STATS_DIR="$1"; shift ;;
@@ -75,22 +79,27 @@ mkdir -p "$DONE_DIR"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 vlog() { [ "$VERBOSE" = "1" ] && log "$*" || true; }
 
-# Find match files without .done markers
+# Find match files without .done markers, skipping any whose .match file
+# is newer than $MIN_AGE_MINUTES — the in-game script may still be uploading.
 PENDING=()
+SKIPPED_FRESH=0
 for match_file in "$MATCH_DIR"/*.match; do
   [ -f "$match_file" ] || continue
   prefix=$(basename "$match_file" .match)
-  if [ ! -f "$DONE_DIR/$prefix.done" ]; then
-    PENDING+=("$prefix")
+  [ -f "$DONE_DIR/$prefix.done" ] && continue
+  if [ -n "$(find "$match_file" -mmin -"$MIN_AGE_MINUTES" 2>/dev/null)" ]; then
+    SKIPPED_FRESH=$((SKIPPED_FRESH + 1))
+    continue
   fi
+  PENDING+=("$prefix")
 done
 
 if [ ${#PENDING[@]} -eq 0 ]; then
-  vlog "No pending matches found."
+  vlog "No pending matches found. (skipped $SKIPPED_FRESH fresh match(es) under ${MIN_AGE_MINUTES}m)"
   exit 0
 fi
 
-log "Found ${#PENDING[@]} match(es) without .done markers (processing up to $MAX_MATCHES)"
+log "Found ${#PENDING[@]} match(es) without .done markers (processing up to $MAX_MATCHES; skipped $SKIPPED_FRESH fresh under ${MIN_AGE_MINUTES}m)"
 
 PROCESSED=0
 SUBMITTED=0
