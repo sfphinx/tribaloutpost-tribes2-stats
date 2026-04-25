@@ -1,5 +1,5 @@
 //
-// TribalOutpost Stats v2.2.2 — Thin Reporting Layer
+// TribalOutpost Stats — Thin Reporting Layer
 //
 // Reads DarkTiger's dtStats stat objects and reports to the TribalOutpost API.
 // Requires z_dtStats.cs to be loaded first (files load alphabetically in scripts/autoexec/).
@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.2.2";
+$TribalOutpost::Version = "2.4.0";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -606,6 +606,35 @@ function tribaloutpost_saveToken(%token)
 }
 
 // ============================================================
+// Done Marker
+// ============================================================
+
+function tribaloutpost_writeDoneMarker(%sid)
+{
+	%mid = $T2Stats::Sub[%sid, "mid"];
+	%prefix = $T2Stats::Sub[%sid, "prefix"];
+	if (%prefix $= "" || %mid $= "")
+		return;
+
+	// Ensure directory exists
+	export("$TribalOutpost::_tmp", "TribalOutpostStats/done/empty", false);
+
+	%fo = new FileObject();
+	%fo.openForWrite("TribalOutpostStats/done/" @ %prefix @ ".done");
+	%fo.writeLine("mid=" @ %mid);
+	%fo.close();
+	%fo.delete();
+
+	tribaloutpost_log("[" @ %sid @ "] Done marker written for " @ %prefix);
+}
+
+function tribaloutpost_markComplete(%sid)
+{
+	tribaloutpost_log("[" @ %sid @ "] Submission complete.");
+	tribaloutpost_writeDoneMarker(%sid);
+}
+
+// ============================================================
 // Server Registration
 // ============================================================
 
@@ -789,6 +818,7 @@ function tribaloutpost_writeMatchFile(%game)
 	%fo.openForWrite($T2Stats::MatchFile);
 
 	// Match metadata as key=value (no #MATCH header, no #PLAYER — v2 format)
+	%fo.writeLine("client_match_id=" @ $T2Stats::FilePrefix);
 	%fo.writeLine("map=" @ $CurrentMission);
 	%fo.writeLine("gametype=" @ $CurrentMissionType);
 	%fo.writeLine("tournament=" @ $Host::TournamentMode);
@@ -1142,6 +1172,7 @@ function tribaloutpost_submitMatch()
 	%sid = $T2Stats::SubmitSeq;
 
 	// Snapshot file paths for this submission
+	$T2Stats::Sub[%sid, "prefix"] = $T2Stats::FilePrefix;
 	$T2Stats::Sub[%sid, "matchFile"] = $T2Stats::MatchFile;
 	$T2Stats::Sub[%sid, "playersFile"] = $T2Stats::PlayersFile;
 	$T2Stats::Sub[%sid, "extFile"] = $T2Stats::ExtFile;
@@ -1384,7 +1415,7 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
 			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 		else
-			tribaloutpost_log("[" @ %sid @ "] Submission complete.");
+			tribaloutpost_markComplete(%sid);
 		return;
 	}
 
@@ -1425,7 +1456,7 @@ function T2StatsExt::onDisconnect(%this)
 		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
 			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
 		else
-			tribaloutpost_log("[" @ %sid @ "] Submission complete.");
+			tribaloutpost_markComplete(%sid);
 	}
 	%this.delete();
 }
@@ -1495,7 +1526,8 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 
 	if (%linesRead == 0)
 	{
-		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent. Submission complete.");
+		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent.");
+		tribaloutpost_markComplete(%sid);
 		return;
 	}
 
@@ -1531,7 +1563,10 @@ function T2StatsPlays::onDisconnect(%this)
 	if ($T2Stats::Sub[%sid, "playHasMore"])
 		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, $T2Stats::Sub[%sid, "playOffset"]);
 	else
-		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent. Submission complete.");
+	{
+		tribaloutpost_log("[" @ %sid @ "] All play-by-play sent.");
+		tribaloutpost_markComplete(%sid);
+	}
 
 	%this.delete();
 }
