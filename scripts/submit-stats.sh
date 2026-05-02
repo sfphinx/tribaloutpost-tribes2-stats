@@ -165,6 +165,7 @@ post() {
   fi
   local response
   response=$(curl -s -w "\n%{http_code}" \
+    -A "TribalOutpostStats" \
     -X POST \
     -H "Content-Type: text/plain" \
     -H "Authorization: Bearer $TOKEN" \

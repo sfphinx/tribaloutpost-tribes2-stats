@@ -130,6 +130,7 @@ for prefix in "${PENDING[@]}"; do
 
   # Submit match (or get existing MID from 409)
   MATCH_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -A "TribalOutpostStats" \
     -X POST \
     -H "Content-Type: text/plain" \
     -H "Authorization: Bearer $TOKEN" \
@@ -154,6 +155,7 @@ for prefix in "${PENDING[@]}"; do
 
   # Check status from API
   STATUS_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -A "TribalOutpostStats" \
     -H "Authorization: Bearer $TOKEN" \
     "$API_URL/api/t2stats/import/$MID/status")
   STATUS_CODE=$(echo "$STATUS_RESPONSE" | tail -1)
