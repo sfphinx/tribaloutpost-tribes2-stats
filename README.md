@@ -141,10 +141,7 @@ The catchup script scans `TribalOutpostStats/matches/` for `.match` files withou
 Every 5 minutes, processing up to 20 matches per run:
 
 ```cron
-*/15 * * * * /opt/tribaloutpost/scripts/stats-catchup.sh \
-  --max 20 \
-  /home/t2server/Tribes2/GameData/Base/TribalOutpostStats \
-  > /var/log/stats-catchup.log 2>&1
+*/15 * * * * /opt/tribaloutpost/scripts/stats-catchup.sh --max 20 /home/t2server/Tribes2/GameData/Classic/TribalOutpostStats > /var/log/stats-catchup.log 2>&1
 ```
 
 Adjust paths to your install. The `> /var/log/...` redirect captures both stdout and stderr; set to override last run to prevent log growth.
