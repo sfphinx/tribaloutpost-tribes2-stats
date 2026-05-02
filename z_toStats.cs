@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.4.0";
+$TribalOutpost::Version = "2.4.1";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -606,32 +606,18 @@ function tribaloutpost_saveToken(%token)
 }
 
 // ============================================================
-// Done Marker
+// Submission Complete
 // ============================================================
 
-function tribaloutpost_writeDoneMarker(%sid)
-{
-	%mid = $T2Stats::Sub[%sid, "mid"];
-	%prefix = $T2Stats::Sub[%sid, "prefix"];
-	if (%prefix $= "" || %mid $= "")
-		return;
-
-	// Ensure directory exists
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/done/empty", false);
-
-	%fo = new FileObject();
-	%fo.openForWrite("TribalOutpostStats/done/" @ %prefix @ ".done");
-	%fo.writeLine("mid=" @ %mid);
-	%fo.close();
-	%fo.delete();
-
-	tribaloutpost_log("[" @ %sid @ "] Done marker written for " @ %prefix);
-}
-
+// Logs that the in-game best-effort upload chain finished. Does NOT write
+// the done/<prefix>.done marker — onDisconnect fires regardless of HTTP
+// status, so the in-game script can't tell success from failure. The
+// stats-catchup.sh cron is the sole writer of .done markers; it queries
+// /api/t2stats/import/<mid>/status to verify the server actually has the
+// data before marking complete.
 function tribaloutpost_markComplete(%sid)
 {
-	tribaloutpost_log("[" @ %sid @ "] Submission complete.");
-	tribaloutpost_writeDoneMarker(%sid);
+	tribaloutpost_log("[" @ %sid @ "] In-game submission chain finished (catchup will verify).");
 }
 
 // ============================================================
