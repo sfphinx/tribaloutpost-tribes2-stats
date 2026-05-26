@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.4.1";
+$TribalOutpost::Version = "2.4.2";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -1188,20 +1188,16 @@ function tribaloutpost_submitMatch()
 	%fo.close();
 	%fo.delete();
 
-	if (isObject(T2StatsImport))
-	{
-		T2StatsImport.disconnect();
-		T2StatsImport.delete();
-	}
+	%http = new HTTPObject() {
+		class = T2StatsImport;
+		submitId = %sid;
+	};
 
-	new HTTPObject(T2StatsImport);
-	T2StatsImport.submitId = %sid;
-
-	T2StatsImport.setHeader("Content-Type", "text/plain");
-	T2StatsImport.setHeader("Accept", "text/plain");
-	T2StatsImport.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
-	T2StatsImport.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsImport.post($TribalOutpost::StatsURL, $TribalOutpost::ImportPath, "", %body);
+	%http.setHeader("Content-Type", "text/plain");
+	%http.setHeader("Accept", "text/plain");
+	%http.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
+	%http.setHeader("X-Stats-Version", $TribalOutpost::Version);
+	%http.post($TribalOutpost::StatsURL, $TribalOutpost::ImportPath, "", %body);
 }
 
 function T2StatsImport::onLine(%this, %line)
@@ -1299,20 +1295,16 @@ function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "playerOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playerHasMore"] = %hasMore;
 
-	if (isObject(T2StatsPlayers))
-	{
-		T2StatsPlayers.disconnect();
-		T2StatsPlayers.delete();
-	}
+	%http = new HTTPObject() {
+		class = T2StatsPlayers;
+		submitId = %sid;
+	};
 
-	new HTTPObject(T2StatsPlayers);
-	T2StatsPlayers.submitId = %sid;
-
-	T2StatsPlayers.setHeader("Content-Type", "text/plain");
-	T2StatsPlayers.setHeader("Accept", "text/plain");
-	T2StatsPlayers.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
-	T2StatsPlayers.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsPlayers.post($TribalOutpost::StatsURL, $TribalOutpost::PlayersPath @ %mid @ "/players", "", %body);
+	%http.setHeader("Content-Type", "text/plain");
+	%http.setHeader("Accept", "text/plain");
+	%http.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
+	%http.setHeader("X-Stats-Version", $TribalOutpost::Version);
+	%http.post($TribalOutpost::StatsURL, $TribalOutpost::PlayersPath @ %mid @ "/players", "", %body);
 }
 
 function T2StatsPlayers::onLine(%this, %line)
@@ -1410,20 +1402,16 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "extOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "extHasMore"] = %hasMore;
 
-	if (isObject(T2StatsExt))
-	{
-		T2StatsExt.disconnect();
-		T2StatsExt.delete();
-	}
+	%http = new HTTPObject() {
+		class = T2StatsExt;
+		submitId = %sid;
+	};
 
-	new HTTPObject(T2StatsExt);
-	T2StatsExt.submitId = %sid;
-
-	T2StatsExt.setHeader("Content-Type", "text/plain");
-	T2StatsExt.setHeader("Accept", "text/plain");
-	T2StatsExt.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
-	T2StatsExt.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsExt.post($TribalOutpost::StatsURL, $TribalOutpost::ExtPath @ %mid @ "/stats", "", %body);
+	%http.setHeader("Content-Type", "text/plain");
+	%http.setHeader("Accept", "text/plain");
+	%http.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
+	%http.setHeader("X-Stats-Version", $TribalOutpost::Version);
+	%http.post($TribalOutpost::StatsURL, $TribalOutpost::ExtPath @ %mid @ "/stats", "", %body);
 }
 
 function T2StatsExt::onLine(%this, %line)
@@ -1522,20 +1510,16 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "playOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playHasMore"] = %hasMore;
 
-	if (isObject(T2StatsPlays))
-	{
-		T2StatsPlays.disconnect();
-		T2StatsPlays.delete();
-	}
+	%http = new HTTPObject() {
+		class = T2StatsPlays;
+		submitId = %sid;
+	};
 
-	new HTTPObject(T2StatsPlays);
-	T2StatsPlays.submitId = %sid;
-
-	T2StatsPlays.setHeader("Content-Type", "text/plain");
-	T2StatsPlays.setHeader("Accept", "text/plain");
-	T2StatsPlays.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
-	T2StatsPlays.setHeader("X-Stats-Version", $TribalOutpost::Version);
-	T2StatsPlays.post($TribalOutpost::StatsURL, $TribalOutpost::PlaysPath @ %mid @ "/plays", "", %body);
+	%http.setHeader("Content-Type", "text/plain");
+	%http.setHeader("Accept", "text/plain");
+	%http.setHeader("Authorization", "Bearer " @ $TribalOutpost::Token);
+	%http.setHeader("X-Stats-Version", $TribalOutpost::Version);
+	%http.post($TribalOutpost::StatsURL, $TribalOutpost::PlaysPath @ %mid @ "/plays", "", %body);
 }
 
 function T2StatsPlays::onLine(%this, %line)
