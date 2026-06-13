@@ -38,7 +38,14 @@ $TribalOutpost::StatsURL = "tribaloutpost.com";  // API host
 $TribalOutpost::EnablePlayByPlay = 1;            // Enable play-by-play tracking
 $TribalOutpost::PlayBatchSize = 100;             // Plays per HTTP request
 $TribalOutpost::PlayBatchDelay = 1000;           // ms between batches
+$TribalOutpost::DataDir = "TribalOutpostStats";  // Base dir for all output (no trailing slash)
 ```
+
+All on-disk output (`token.txt`, `debug.log`, and the `matches/`, `players/`, `plays/`, `ext/`
+subdirectories) lives under `$TribalOutpost::DataDir`, resolved relative to the game's working
+directory. Set it in `config.cs` to relocate everything. The config file itself is always read
+from the fixed path `TribalOutpostStats/config.cs` (it loads before `DataDir` is known), so set
+`DataDir` there to redirect all other files.
 
 ## Stats tracked
 

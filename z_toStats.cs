@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.4.2";
+$TribalOutpost::Version = "2.4.3";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -24,7 +24,10 @@ $TribalOutpost::ImportPath = "/api/t2stats/import";
 $TribalOutpost::PlayersPath = "/api/t2stats/import/";
 $TribalOutpost::ExtPath = "/api/t2stats/import/";
 $TribalOutpost::PlaysPath = "/api/t2stats/import/";
-$TribalOutpost::TokenFile = "TribalOutpostStats/token.txt";
+// Base directory for all on-disk output (token, logs, match/player/play/ext files).
+// Override in config.cs. No trailing slash.
+if ($TribalOutpost::DataDir $= "") $TribalOutpost::DataDir = "TribalOutpostStats";
+$TribalOutpost::TokenFile = $TribalOutpost::DataDir @ "/token.txt";
 if ($TribalOutpost::EnablePlayByPlay $= "") $TribalOutpost::EnablePlayByPlay = 1;
 if ($TribalOutpost::PlayBatchSize $= "") $TribalOutpost::PlayBatchSize = 100;
 if ($TribalOutpost::PlayBatchDelay $= "") $TribalOutpost::PlayBatchDelay = 1000;
@@ -554,7 +557,7 @@ $T2Stats::ExtKey[$T2Stats::ExtKeyCount++] = "WLR";
 // Debug Logging
 // ============================================================
 
-$TribalOutpost::LogFile = "TribalOutpostStats/debug.log";
+$TribalOutpost::LogFile = $TribalOutpost::DataDir @ "/debug.log";
 
 function tribaloutpost_log(%msg)
 {
@@ -593,7 +596,7 @@ function tribaloutpost_loadToken()
 function tribaloutpost_saveToken(%token)
 {
 	// Ensure directory exists
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/empty", false);
+	export("$TribalOutpost::_tmp", $TribalOutpost::DataDir @ "/empty", false);
 
 	%fo = new FileObject();
 	%fo.openForWrite($TribalOutpost::TokenFile);
@@ -684,14 +687,14 @@ function tribaloutpost_initPlaysFile()
 	// Generate a shared prefix for all files this match
 	$T2Stats::FilePrefix = formatTimeString("yy-mm-dd_HHnnss") @ "_" @ $CurrentMission;
 
-	$T2Stats::PlaysFile = "TribalOutpostStats/plays/" @ $T2Stats::FilePrefix @ ".plays";
+	$T2Stats::PlaysFile = $TribalOutpost::DataDir @ "/plays/" @ $T2Stats::FilePrefix @ ".plays";
 	$T2Stats::PlaysCount = 0;
 
 	// Ensure directories
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/plays/empty", false);
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/matches/empty", false);
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/players/empty", false);
-	export("$TribalOutpost::_tmp", "TribalOutpostStats/ext/empty", false);
+	export("$TribalOutpost::_tmp", $TribalOutpost::DataDir @ "/plays/empty", false);
+	export("$TribalOutpost::_tmp", $TribalOutpost::DataDir @ "/matches/empty", false);
+	export("$TribalOutpost::_tmp", $TribalOutpost::DataDir @ "/players/empty", false);
+	export("$TribalOutpost::_tmp", $TribalOutpost::DataDir @ "/ext/empty", false);
 
 	// Create plays file with header
 	%fo = new FileObject();
@@ -796,7 +799,7 @@ function tribaloutpost_writePlay(%event, %time, %clid1, %clid2, %location, %weap
 
 function tribaloutpost_writeMatchFile(%game)
 {
-	$T2Stats::MatchFile = "TribalOutpostStats/matches/" @ $T2Stats::FilePrefix @ ".match";
+	$T2Stats::MatchFile = $TribalOutpost::DataDir @ "/matches/" @ $T2Stats::FilePrefix @ ".match";
 
 	%elapsedTime = mFloor((getSimTime() - $missionStartTime) / 1000);
 
@@ -840,7 +843,7 @@ function tribaloutpost_writeMatchFile(%game)
 
 function tribaloutpost_writePlayersFile(%game)
 {
-	$T2Stats::PlayersFile = "TribalOutpostStats/players/" @ $T2Stats::FilePrefix @ ".players";
+	$T2Stats::PlayersFile = $TribalOutpost::DataDir @ "/players/" @ $T2Stats::FilePrefix @ ".players";
 
 	// Determine winning team
 	%winningTeam = "";
@@ -1062,7 +1065,7 @@ function tribaloutpost_writePlayersFile(%game)
 
 function tribaloutpost_writeExtFile(%game)
 {
-	$T2Stats::ExtFile = "TribalOutpostStats/ext/" @ $T2Stats::FilePrefix @ ".ext";
+	$T2Stats::ExtFile = $TribalOutpost::DataDir @ "/ext/" @ $T2Stats::FilePrefix @ ".ext";
 
 	%fo = new FileObject();
 	%fo.openForWrite($T2Stats::ExtFile);
