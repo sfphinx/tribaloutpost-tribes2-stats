@@ -621,6 +621,54 @@ function tribaloutpost_saveToken(%token)
 function tribaloutpost_markComplete(%sid)
 {
 	tribaloutpost_log("[" @ %sid @ "] In-game submission chain finished (catchup will verify).");
+	tribaloutpost_finishSubmission(%sid);
+}
+
+// ============================================================
+// Submission Queue
+//
+// Submissions run strictly one at a time. The HTTP callbacks dispatch by
+// object NAME (T2Stats Torque ignores the `class` field), so the four
+// stages reuse fixed-name singletons (T2StatsImport/Players/Ext/Plays).
+// Serializing means those singletons are never shared by two submissions
+// at once, so rapid map rotation can't make one submission clobber
+// another's in-flight request. Per-submission data lives in
+// $T2Stats::Sub[%sid, ...], so a queued match keeps its files/state until
+// its turn.
+// ============================================================
+
+function tribaloutpost_enqueueSubmission(%sid)
+{
+	if ($T2Stats::QTail $= "") $T2Stats::QTail = 0;
+	$T2Stats::SubQueue[$T2Stats::QTail] = %sid;
+	$T2Stats::QTail++;
+	tribaloutpost_pumpQueue();
+}
+
+function tribaloutpost_pumpQueue()
+{
+	if ($T2Stats::ActiveSid !$= "")
+		return; // a submission is already in flight
+
+	if ($T2Stats::QHead $= "") $T2Stats::QHead = 0;
+	if ($T2Stats::QTail $= "") $T2Stats::QTail = 0;
+	if ($T2Stats::QHead >= $T2Stats::QTail)
+		return; // queue empty
+
+	%sid = $T2Stats::SubQueue[$T2Stats::QHead];
+	$T2Stats::QHead++;
+	$T2Stats::ActiveSid = %sid;
+	tribaloutpost_startImport(%sid);
+}
+
+// Release the active slot and start the next queued submission. Safe to
+// call from any terminal/failure path; ignores stale calls for a sid that
+// is no longer the active one.
+function tribaloutpost_finishSubmission(%sid)
+{
+	if ($T2Stats::ActiveSid == %sid)
+		$T2Stats::ActiveSid = "";
+	tribaloutpost_pumpQueue();
 }
 
 // ============================================================
@@ -1169,6 +1217,13 @@ function tribaloutpost_submitMatch()
 	$T2Stats::Sub[%sid, "playsCount"] = $T2Stats::PlaysCount;
 	$T2Stats::Sub[%sid, "mid"] = "";
 
+	// Queue it; the chain runs one submission at a time (see pumpQueue).
+	tribaloutpost_enqueueSubmission(%sid);
+}
+
+// Step 1: Send match record
+function tribaloutpost_startImport(%sid)
+{
 	tribaloutpost_log("[" @ %sid @ "] Submitting match...");
 
 	// Read match file
@@ -1177,6 +1232,7 @@ function tribaloutpost_submitMatch()
 	{
 		tribaloutpost_log("[" @ %sid @ "] Could not read match file.");
 		%fo.delete();
+		tribaloutpost_finishSubmission(%sid);
 		return;
 	}
 
@@ -1230,18 +1286,28 @@ function T2StatsImport::onLine(%this, %line)
 
 function T2StatsImport::onDisconnect(%this)
 {
+	%sid = %this.submitId;
+	// If no mid was parsed the chain never started, so release the slot.
+	// If mid was set, onLine already scheduled the player batch and that
+	// chain owns the slot until it completes.
+	if ($T2Stats::Sub[%sid, "mid"] $= "")
+		tribaloutpost_finishSubmission(%sid);
 	%this.delete();
 }
 
 function T2StatsImport::onConnectFailed(%this)
 {
-	tribaloutpost_log("[" @ %this.submitId @ "] Connection failed for match import.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] Connection failed for match import.");
+	tribaloutpost_finishSubmission(%sid);
 	%this.delete();
 }
 
 function T2StatsImport::onDNSFailed(%this)
 {
-	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for match import.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] DNS failed for match import.");
+	tribaloutpost_finishSubmission(%sid);
 	%this.delete();
 }
 
@@ -1250,7 +1316,10 @@ function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 {
 	%mid = $T2Stats::Sub[%sid, "mid"];
 	if (%mid $= "")
+	{
+		tribaloutpost_finishSubmission(%sid);
 		return;
+	}
 
 	%fo = new FileObject();
 	if (!%fo.openForRead($T2Stats::Sub[%sid, "playersFile"]))
@@ -1349,7 +1418,10 @@ function T2StatsPlayers::onConnectFailed(%this)
 
 function T2StatsPlayers::onDNSFailed(%this)
 {
-	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for player batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] DNS failed for player batch.");
+	// Advance to ext stats so the chain (and queue slot) keeps moving.
+	schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendExtBatch", %sid, 0);
 	%this.delete();
 }
 
@@ -1358,16 +1430,21 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 {
 	%mid = $T2Stats::Sub[%sid, "mid"];
 	if (%mid $= "")
+	{
+		tribaloutpost_finishSubmission(%sid);
 		return;
+	}
 
 	%fo = new FileObject();
 	if (!%fo.openForRead($T2Stats::Sub[%sid, "extFile"]))
 	{
 		tribaloutpost_log("[" @ %sid @ "] Could not read ext file.");
 		%fo.delete();
-		// Skip to plays
+		// Skip to plays, else end the chain so the queue slot is released.
 		if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
 			schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
+		else
+			tribaloutpost_markComplete(%sid);
 		return;
 	}
 
@@ -1457,15 +1534,22 @@ function T2StatsExt::onConnectFailed(%this)
 {
 	%sid = %this.submitId;
 	tribaloutpost_log("[" @ %sid @ "] Connection failed for ext batch.");
-	// Try plays anyway
+	// Try plays anyway, else end the chain so the queue slot is released.
 	if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
 		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
+	else
+		tribaloutpost_markComplete(%sid);
 	%this.delete();
 }
 
 function T2StatsExt::onDNSFailed(%this)
 {
-	tribaloutpost_log("[" @ %this.submitId @ "] DNS failed for ext batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] DNS failed for ext batch.");
+	if ($TribalOutpost::EnablePlayByPlay && $T2Stats::Sub[%sid, "playsCount"] > 0)
+		schedule($TribalOutpost::PlayBatchDelay, 0, "tribaloutpost_sendPlayBatch", %sid, 0);
+	else
+		tribaloutpost_markComplete(%sid);
 	%this.delete();
 }
 
@@ -1476,6 +1560,7 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 	if (%mid $= "")
 	{
 		tribaloutpost_log("[" @ %sid @ "] No MID, skipping play-by-play.");
+		tribaloutpost_finishSubmission(%sid);
 		return;
 	}
 
@@ -1484,6 +1569,7 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 	{
 		tribaloutpost_log("[" @ %sid @ "] Could not read plays file.");
 		%fo.delete();
+		tribaloutpost_markComplete(%sid);
 		return;
 	}
 
@@ -1566,13 +1652,17 @@ function T2StatsPlays::onDisconnect(%this)
 
 function T2StatsPlays::onConnectFailed(%this)
 {
-	tribaloutpost_log("[" @ %this.submitId @ "] Connection failed for play-by-play batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] Connection failed for play-by-play batch.");
+	tribaloutpost_markComplete(%sid);
 	%this.delete();
 }
 
 function T2StatsPlays::onDNSFailed(%this)
 {
-	tribaloutpost_log("DNS failed for play-by-play batch.");
+	%sid = %this.submitId;
+	tribaloutpost_log("[" @ %sid @ "] DNS failed for play-by-play batch.");
+	tribaloutpost_markComplete(%sid);
 	%this.delete();
 }
 
