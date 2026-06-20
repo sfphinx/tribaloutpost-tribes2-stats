@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.4.4";
+$TribalOutpost::Version = "2.4.5";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -1191,8 +1191,13 @@ function tribaloutpost_submitMatch()
 	%fo.close();
 	%fo.delete();
 
-	%http = new HTTPObject("T2StatsImport_" @ %sid) {
-		class = T2StatsImport;
+	if (isObject(T2StatsImport))
+	{
+		T2StatsImport.disconnect();
+		T2StatsImport.delete();
+	}
+
+	%http = new HTTPObject(T2StatsImport) {
 		submitId = %sid;
 	};
 
@@ -1298,8 +1303,13 @@ function tribaloutpost_sendPlayerBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "playerOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playerHasMore"] = %hasMore;
 
-	%http = new HTTPObject("T2StatsPlayers_" @ %sid) {
-		class = T2StatsPlayers;
+	if (isObject(T2StatsPlayers))
+	{
+		T2StatsPlayers.disconnect();
+		T2StatsPlayers.delete();
+	}
+
+	%http = new HTTPObject(T2StatsPlayers) {
 		submitId = %sid;
 	};
 
@@ -1405,8 +1415,13 @@ function tribaloutpost_sendExtBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "extOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "extHasMore"] = %hasMore;
 
-	%http = new HTTPObject("T2StatsExt_" @ %sid) {
-		class = T2StatsExt;
+	if (isObject(T2StatsExt))
+	{
+		T2StatsExt.disconnect();
+		T2StatsExt.delete();
+	}
+
+	%http = new HTTPObject(T2StatsExt) {
 		submitId = %sid;
 	};
 
@@ -1513,8 +1528,13 @@ function tribaloutpost_sendPlayBatch(%sid, %lineOffset)
 	$T2Stats::Sub[%sid, "playOffset"] = %lineOffset + %fileLines;
 	$T2Stats::Sub[%sid, "playHasMore"] = %hasMore;
 
-	%http = new HTTPObject("T2StatsPlays_" @ %sid) {
-		class = T2StatsPlays;
+	if (isObject(T2StatsPlays))
+	{
+		T2StatsPlays.disconnect();
+		T2StatsPlays.delete();
+	}
+
+	%http = new HTTPObject(T2StatsPlays) {
 		submitId = %sid;
 	};
 
