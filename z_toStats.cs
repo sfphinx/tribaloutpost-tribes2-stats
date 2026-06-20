@@ -16,7 +16,7 @@ if (isFile("TribalOutpostStats/config.cs"))
 	exec("TribalOutpostStats/config.cs");
 
 // -- Configuration (override in TribalOutpostStats/config.cs) --
-$TribalOutpost::Version = "2.4.5";
+$TribalOutpost::Version = "2.4.6";
 if ($TribalOutpost::StatsURL $= "") $TribalOutpost::StatsURL = "https://tribaloutpost.com";
 if ($TribalOutpost::Debug $= "") $TribalOutpost::Debug = 0;
 $TribalOutpost::RegisterPath = "/api/t2stats/register";
@@ -656,6 +656,7 @@ function tribaloutpost_pumpQueue()
 		return; // queue empty
 
 	%sid = $T2Stats::SubQueue[$T2Stats::QHead];
+	$T2Stats::SubQueue[$T2Stats::QHead] = "";
 	$T2Stats::QHead++;
 	$T2Stats::ActiveSid = %sid;
 	// Defer to the next tick: pumpQueue is often reached from inside the
@@ -671,7 +672,27 @@ function tribaloutpost_finishSubmission(%sid)
 {
 	if ($T2Stats::ActiveSid == %sid)
 		$T2Stats::ActiveSid = "";
+	tribaloutpost_clearSub(%sid);
 	tribaloutpost_pumpQueue();
+}
+
+// Null out a finished submission's snapshot to reclaim memory. (Torque has
+// no way to remove a global key, so values are emptied rather than deleted.)
+function tribaloutpost_clearSub(%sid)
+{
+	$T2Stats::Sub[%sid, "prefix"] = "";
+	$T2Stats::Sub[%sid, "matchFile"] = "";
+	$T2Stats::Sub[%sid, "playersFile"] = "";
+	$T2Stats::Sub[%sid, "extFile"] = "";
+	$T2Stats::Sub[%sid, "playsFile"] = "";
+	$T2Stats::Sub[%sid, "playsCount"] = "";
+	$T2Stats::Sub[%sid, "mid"] = "";
+	$T2Stats::Sub[%sid, "playerOffset"] = "";
+	$T2Stats::Sub[%sid, "playerHasMore"] = "";
+	$T2Stats::Sub[%sid, "extOffset"] = "";
+	$T2Stats::Sub[%sid, "extHasMore"] = "";
+	$T2Stats::Sub[%sid, "playOffset"] = "";
+	$T2Stats::Sub[%sid, "playHasMore"] = "";
 }
 
 // ============================================================
@@ -735,9 +756,7 @@ function T2StatsRegister::onDNSFailed(%this)
 
 function tribaloutpost_initPlaysFile()
 {
-	// Generate a shared prefix for all files this match
-	$T2Stats::FilePrefix = formatTimeString("yy-mm-dd_HHnnss") @ "_" @ $CurrentMission;
-
+	// FilePrefix is set in onMissionLoadDone (shared by all output files).
 	$T2Stats::PlaysFile = $TribalOutpost::DataDir @ "/plays/" @ $T2Stats::FilePrefix @ ".plays";
 	$T2Stats::PlaysCount = 0;
 
@@ -756,9 +775,6 @@ function tribaloutpost_initPlaysFile()
 	%fo.writeLine("#gametype=" @ $CurrentMissionType);
 	%fo.close();
 	%fo.delete();
-
-	// Reset dropped-player cache for this match
-	$T2Stats::DroppedCount = 0;
 }
 
 // ============================================================
@@ -1886,6 +1902,12 @@ function tribaloutpost_onMissionLoadDone(%game)
 	// Register if no token
 	if ($TribalOutpost::Token $= "")
 		tribaloutpost_register();
+
+	// Shared per-match prefix for ALL output files (match/players/ext/plays)
+	// and the client_match_id. Set unconditionally so file naming and dedupe
+	// work even when play-by-play is disabled.
+	$T2Stats::FilePrefix = formatTimeString("yy-mm-dd_HHnnss") @ "_" @ $CurrentMission;
+	$T2Stats::DroppedCount = 0;
 
 	// Init play-by-play file
 	if ($TribalOutpost::EnablePlayByPlay)
