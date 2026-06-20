@@ -658,7 +658,10 @@ function tribaloutpost_pumpQueue()
 	%sid = $T2Stats::SubQueue[$T2Stats::QHead];
 	$T2Stats::QHead++;
 	$T2Stats::ActiveSid = %sid;
-	tribaloutpost_startImport(%sid);
+	// Defer to the next tick: pumpQueue is often reached from inside the
+	// previous submission's terminal callback (before its %this.delete()),
+	// so don't issue the next request synchronously on that stack.
+	schedule(0, 0, "tribaloutpost_startImport", %sid);
 }
 
 // Release the active slot and start the next queued submission. Safe to
