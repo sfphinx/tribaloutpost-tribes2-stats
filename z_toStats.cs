@@ -559,9 +559,25 @@ $T2Stats::ExtKey[$T2Stats::ExtKeyCount++] = "WLR";
 
 $TribalOutpost::LogFile = $TribalOutpost::DataDir @ "/debug.log";
 
+// Always-on info logging. Use for milestones operators care about (script
+// loaded, match submitted). Prefix is plain "T2Stats:".
+function tribaloutpost_info(%msg)
+{
+	echo("T2Stats: " @ %msg);
+	tribaloutpost_writeLog(%msg);
+}
+
+// Debug logging. Echoes (prefixed "++T2Stats:") only when debug is enabled;
+// still written to the debug log file when Debug is set.
 function tribaloutpost_log(%msg)
 {
-	echo("+++T2Stats: " @ %msg);
+	if ($TribalOutpost::Debug)
+		echo("++T2Stats: " @ %msg);
+	tribaloutpost_writeLog(%msg);
+}
+
+function tribaloutpost_writeLog(%msg)
+{
 	if ($TribalOutpost::Debug)
 	{
 		%fo = new FileObject();
@@ -620,7 +636,7 @@ function tribaloutpost_saveToken(%token)
 // data before marking complete.
 function tribaloutpost_markComplete(%sid)
 {
-	tribaloutpost_log("[" @ %sid @ "] In-game submission chain finished (catchup will verify).");
+	tribaloutpost_info("[" @ %sid @ "] Match submitted.");
 	tribaloutpost_finishSubmission(%sid);
 }
 
@@ -2350,4 +2366,4 @@ package TribalOutpost
 };
 
 activatePackage(TribalOutpost);
-tribaloutpost_log("TribalOutpost Stats v" @ $TribalOutpost::Version @ " loaded. URL=" @ $TribalOutpost::StatsURL);
+tribaloutpost_info("TribalOutpost Stats v" @ $TribalOutpost::Version @ " loaded. URL=" @ $TribalOutpost::StatsURL);
